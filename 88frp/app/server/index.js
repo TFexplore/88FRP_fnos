@@ -1,5 +1,6 @@
 const http = require("http");
 const fs = require("fs/promises");
+const fsSync = require("fs");
 const path = require("path");
 
 const { fetchRemoteConfig, validateConfigText } = require("./lib/config-service");
@@ -14,9 +15,31 @@ const dataDir = process.env.FNOS_PKGVAR || process.env.TRIM_PKGVAR || path.join(
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.web_port || process.env.PORT || process.env.TRIM_SERVICE_PORT || 8801);
 const defaultRemoteUrl = process.env.remote_url || "";
-const frpcBinaryPath =
-  process.env.FRPC_BINARY_PATH ||
-  path.join(serverDir, "bin", process.platform === "win32" ? "frpc.exe" : "frpc");
+
+const getArchDir = () => {
+  switch (process.arch) {
+    case "x64": return "amd64";
+    case "arm64": return "arm64";
+    case "arm": return "arm";
+    default: return process.arch;
+  }
+};
+
+const getFrpcPath = () => {
+  if (process.env.FRPC_BINARY_PATH) return process.env.FRPC_BINARY_PATH;
+  
+  const archDir = getArchDir();
+  const binaryName = "88frpc";
+  
+  // 优先尝试架构特定目录
+  const archPath = path.join(serverDir, "bin", archDir, binaryName);
+  if (fsSync.existsSync(archPath)) return archPath;
+  
+  // 回退到原有的 bin 目录
+  return path.join(serverDir, "bin", binaryName);
+};
+
+const frpcBinaryPath = getFrpcPath();
 
 const store = new Store({ dataDir });
 const logger = {
@@ -341,6 +364,8 @@ async function requestListener(req, res) {
 
 async function bootstrap() {
   await store.initialize();
+  // 在启动时清理幽灵进程
+  await processManager.killGhostProcesses();
   await processManager.hydrateRuntimeState();
   const server = http.createServer(requestListener);
 

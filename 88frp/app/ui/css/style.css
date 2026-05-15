@@ -193,6 +193,18 @@ body {
   border-color: var(--accent-blue);
 }
 
+.get-secret-link {
+  font-size: 12px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.get-secret-link:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
 .btn {
   padding: 8px 16px;
   border-radius: 6px;

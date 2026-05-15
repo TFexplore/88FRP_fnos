@@ -40,6 +40,7 @@
           </div>
           <div class="toolbar-right">
             <input type="text" class="input-secret" id="inputSecret" placeholder="输入密匙 (secret)">
+            <a href="https://88frp.com" target="_blank" class="get-secret-link">获取密匙</a>
             <button class="btn btn-primary" id="btnSync">同步配置</button>
           </div>
         </header>
@@ -82,7 +83,10 @@
         <input type="text" id="newInstName" class="form-control" placeholder="例如：主力隧道">
       </div>
       <div class="form-group">
-        <label>密匙 (可选)</label>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="margin-bottom: 0;">密匙 (可选)</label>
+          <a href="https://88frp.com" target="_blank" class="get-secret-link">获取密匙</a>
+        </div>
         <input type="text" id="newInstSecret" class="form-control" placeholder="留空则手动配置">
       </div>
       <div class="modal-actions">

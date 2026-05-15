@@ -236,6 +236,33 @@ class ProcessManager {
   buildLogLine(level, message) {
     return `[${new Date().toISOString()}] [${level}] ${message}`;
   }
+
+  /**
+   * 清理系统中残留的幽灵进程
+   */
+  async killGhostProcesses() {
+    const binaryName = path.basename(this.frpcBinaryPath);
+    this.logger.info(`正在清理残留的 ${binaryName} 进程...`);
+    
+    try {
+      const { exec } = require("child_process");
+      const util = require("util");
+      const execAsync = util.promisify(exec);
+      
+      // 在 Linux 下使用 pkill 或 killall 按照进程名杀掉进程
+      if (process.platform === "linux") {
+        try {
+          // pkill -f 匹配完整命令行，这里直接匹配二进制文件名
+          await execAsync(`pkill -f ${binaryName}`);
+          this.logger.info(`已发送清理信号给所有 ${binaryName} 进程`);
+        } catch (e) {
+          // 如果没有找到匹配的进程，pkill 会返回退出码 1，忽略它
+        }
+      }
+    } catch (error) {
+      this.logger.error(`清理幽灵进程失败: ${error.message}`);
+    }
+  }
 }
 
 module.exports = {
