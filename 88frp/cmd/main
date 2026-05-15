@@ -1,0 +1,127 @@
+#!/bin/bash
+
+NODE_BIN_DIR="/var/apps/nodejs_v22/target/bin"
+export PATH="${NODE_BIN_DIR}:$PATH"
+
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+APP_ENTRY="${TRIM_APPDEST}/server/index.js"
+SERVICE_PORT="${TRIM_SERVICE_PORT:-8080}"
+CMD="PORT=${SERVICE_PORT} FNOS_APPDEST=${TRIM_APPDEST} FNOS_PKGVAR=${TRIM_PKGVAR} FNOS_PKGETC=${TRIM_PKGETC} node ${APP_ENTRY}"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+report_error() {
+    local message="$1"
+    if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
+        echo "${message}" > "${TRIM_TEMP_LOGFILE}"
+    fi
+    log_msg "${message}"
+}
+
+check_process() {
+    local pid=$1
+    if kill -0 "${pid}" 2>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        if check_process "${pid}"; then
+            return 0
+        fi
+
+        rm -f "${PID_FILE}"
+    fi
+
+    return 1
+}
+
+start_process() {
+    if status; then
+        log_msg "Node manager already running."
+        return 0
+    fi
+
+    if ! command -v node >/dev/null 2>&1; then
+        report_error "未找到 nodejs_v22 运行时，请确认依赖应用已安装。"
+        return 1
+    fi
+
+    if [ ! -f "${APP_ENTRY}" ]; then
+        report_error "未找到 88FRP 管理服务入口文件，应用启动失败。"
+        return 1
+    fi
+
+    mkdir -p "${TRIM_PKGVAR}"
+    touch "${LOG_FILE}"
+
+    log_msg "Starting 88FRP manager on port ${SERVICE_PORT} ..."
+    bash -c "${CMD}" >> "${LOG_FILE}" 2>&1 &
+    printf "%s" "$!" > "${PID_FILE}"
+    sleep 1
+
+    if ! status; then
+        report_error "88FRP 管理服务启动失败，请查看应用日志。"
+        return 1
+    fi
+
+    log_msg "88FRP manager started."
+    return 0
+}
+
+stop_process() {
+    log_msg "Stopping 88FRP manager ..."
+
+    if [ -r "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+
+        if ! check_process "${pid}"; then
+            rm -f "${PID_FILE}"
+            return 0
+        fi
+
+        kill -TERM "${pid}" >> "${LOG_FILE}" 2>&1
+
+        local count=0
+        while check_process "${pid}" && [ $count -lt 10 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+
+        if check_process "${pid}"; then
+            kill -KILL "${pid}" >> "${LOG_FILE}" 2>&1
+            sleep 1
+        fi
+
+        rm -f "${PID_FILE}"
+    fi
+
+    log_msg "88FRP manager stopped."
+    return 0
+}
+
+case $1 in
+start)
+    start_process || exit 1
+    ;;
+stop)
+    stop_process || exit 1
+    ;;
+status)
+    if status; then
+        exit 0
+    else
+        exit 3
+    fi
+    ;;
+*)
+    exit 1
+    ;;
+esac

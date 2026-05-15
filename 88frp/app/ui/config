@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "88frp.Application": {
+            "title": "88FRP",
+            "icon": "images/icon_{0}.png",
+            "type": "url",
+            "protocol": "http",
+            "port": "8080",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}

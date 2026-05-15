@@ -1,0 +1,28 @@
+{
+    "data-share":
+    {
+        "shares":
+        [
+            {
+                "name": "88frp",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "88frp"
+                    ]
+                }
+            },
+            {
+                "name": "88frp/data",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "88frp"
+                    ]
+                }
+            }
+        ]
+    }
+}

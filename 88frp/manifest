@@ -1,0 +1,13 @@
+appname               = 88frp
+version               = 1.0.0
+display_name          = 88FRP
+desc                  = 用于在飞牛 fnOS 上集中管理多个 frpc 实例的原生应用
+platform              = x86
+source                = thirdparty
+maintainer            = 88frp
+distributor           = 88frp
+desktop_uidir         = ui
+desktop_applaunchname = 88frp.Application
+service_port          = 8080
+checkport             = true
+install_dep_apps      = nodejs_v22

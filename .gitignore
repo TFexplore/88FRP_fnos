@@ -1,0 +1,34 @@
+# Trae
+.trae/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# App Data
+88frp/app/server/data/
+88frp/app/server/bin/frpc
+88frp/app/server/bin/frpc.exe
+
+# Build artifacts
+88frp/88frp.fpk
+
+# Tools
+fnpack.exe
+fnpack-*-*-*
+
+# Logs
+*.log
+runtime.log
+app.log
+
+# Temp
+tmp/
+temp/
+*.tmp
