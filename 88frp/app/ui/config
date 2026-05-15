@@ -3,10 +3,9 @@
         "88frp.Application": {
             "title": "88FRP",
             "icon": "images/icon_{0}.png",
-            "type": "url",
+            "type": "iframe",
             "protocol": "http",
-            "port": "8080",
-            "url": "/",
+            "url": "/cgi/ThirdParty/88frp/index.cgi/",
             "allUsers": false
         }
     }

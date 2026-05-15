@@ -11,7 +11,9 @@ const serverDir = __dirname;
 const appDir = process.env.FNOS_APPDEST || process.env.TRIM_APPDEST || path.resolve(serverDir, "..");
 const uiDir = path.join(appDir, "ui");
 const dataDir = process.env.FNOS_PKGVAR || process.env.TRIM_PKGVAR || path.join(serverDir, "data");
-const port = Number(process.env.PORT || process.env.TRIM_SERVICE_PORT || 8080);
+const host = process.env.HOST || "127.0.0.1";
+const port = Number(process.env.web_port || process.env.PORT || process.env.TRIM_SERVICE_PORT || 8801);
+const defaultRemoteUrl = process.env.remote_url || "";
 const frpcBinaryPath =
   process.env.FRPC_BINARY_PATH ||
   path.join(serverDir, "bin", process.platform === "win32" ? "frpc.exe" : "frpc");
@@ -107,6 +109,7 @@ router.register("GET", "/api/health", async (_req, res) => {
     data: {
       service: "88frp",
       nodeVersion: process.version,
+      host,
       port,
       dataDir,
       frpc: processManager.getBinaryStatus(),
@@ -132,6 +135,7 @@ router.register("PUT", "/api/settings", async (req, res) => {
     defaultResponseMode: body.defaultResponseMode || "text",
     defaultResponsePath: body.defaultResponsePath || "",
     defaultHeadersText: body.defaultHeadersText || "{\n  \"Content-Type\": \"application/json\"\n}",
+    defaultRemoteUrl: body.defaultRemoteUrl || "https://auth.88frp.com/config?secret={{secret}}",
     pollInterval: Number(body.pollInterval || 5000),
   });
   sendJson(res, 200, { success: true, message: "设置已保存。", data: nextValue });
@@ -235,6 +239,9 @@ router.register("POST", "/api/instances/:id/fetch-config", async (req, res, cont
   const body = await readJsonBody(req);
   const instance = await ensureInstanceExists(context.params.id);
   const settings = await store.getSettings();
+  if (defaultRemoteUrl && !settings.defaultRemoteUrl) {
+    settings.defaultRemoteUrl = defaultRemoteUrl;
+  }
   const nextPayload = {
     ...instance,
     ...body,
@@ -337,9 +344,9 @@ async function bootstrap() {
   await processManager.hydrateRuntimeState();
   const server = http.createServer(requestListener);
 
-  server.listen(port, "0.0.0.0", async () => {
+  server.listen(port, host, async () => {
     await logger.info(`88frp manager started on port ${port}`);
-    console.log(`88frp manager listening on http://0.0.0.0:${port}`);
+    console.log(`88frp manager listening on http://${host}:${port}`);
   });
 
   const shutdown = async () => {

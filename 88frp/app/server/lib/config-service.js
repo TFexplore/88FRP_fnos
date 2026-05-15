@@ -33,9 +33,22 @@ function validateConfigText(configText) {
   };
 }
 
-async function fetchRemoteConfig(input) {
+async function fetchRemoteConfig(input, settings) {
   const secretKey = String(input.secretKey || "").trim();
-  const remoteUrl = `https://api.88frp.com/frp/config?secret=${encodeURIComponent(secretKey)}`;
+  let remoteUrl = String(input.remoteUrl || (settings && settings.defaultRemoteUrl) || "").trim();
+
+  if (!remoteUrl) {
+    remoteUrl = `https://auth.88frp.com/config?secret=${encodeURIComponent(secretKey)}`;
+  } else {
+    // 支持 {{secret}} 占位符替换
+    if (remoteUrl.includes("{{secret}}")) {
+      remoteUrl = remoteUrl.replace("{{secret}}", encodeURIComponent(secretKey));
+    } else if (secretKey && !remoteUrl.includes("secret=")) {
+      // 如果没有 secret 参数且提供了 secretKey，尝试自动拼接
+      const separator = remoteUrl.includes("?") ? "&" : "?";
+      remoteUrl = `${remoteUrl}${separator}secret=${encodeURIComponent(secretKey)}`;
+    }
+  }
 
   console.log(`[ConfigService] Fetching from: ${remoteUrl}`);
 

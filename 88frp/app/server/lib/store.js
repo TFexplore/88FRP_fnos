@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   defaultResponseMode: "text",
   defaultResponsePath: "",
   defaultHeadersText: "{\n  \"Content-Type\": \"application/json\"\n}",
+  defaultRemoteUrl: "https://auth.88frp.com/config?secret={{secret}}",
   pollInterval: 5000,
 };
 
@@ -162,7 +163,8 @@ class Store {
   }
 
   async getSettings() {
-    return this.readJson(this.settingsFile, DEFAULT_SETTINGS);
+    const data = await this.readJson(this.settingsFile, DEFAULT_SETTINGS);
+    return { ...DEFAULT_SETTINGS, ...data };
   }
 
   async saveSettings(payload) {

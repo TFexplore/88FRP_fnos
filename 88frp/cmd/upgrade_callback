@@ -2,4 +2,13 @@
 
 ### This script is called after the user upgrades the application.
 
+chmod +x \
+    "${TRIM_APPDEST}/ui/index.cgi" \
+    "${TRIM_APPDEST}/ui/api.cgi" \
+    "${TRIM_APPDEST}/../cmd/main" \
+    "${TRIM_APPDEST}/../cmd/config_init" \
+    "${TRIM_APPDEST}/../cmd/config_callback" \
+    "${TRIM_APPDEST}/../cmd/install_callback" \
+    "${TRIM_APPDEST}/../cmd/upgrade_callback" 2>/dev/null || true
+
 exit 0

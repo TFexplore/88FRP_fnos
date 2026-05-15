@@ -1,8 +1,20 @@
 // API 请求封装
 const API = (() => {
+  function resolveApiBase() {
+    const pathname = window.location.pathname || "/";
+    const cgiIndex = pathname.indexOf("/index.cgi");
+    if (cgiIndex >= 0) {
+      // 确保返回的是 /cgi/ThirdParty/88frp/api.cgi 这样的完整路径
+      return pathname.slice(0, cgiIndex) + "/api.cgi";
+    }
+    return "";
+  }
+
+  const apiBase = resolveApiBase();
+
   async function request(url, options = {}) {
     try {
-      const response = await fetch(url, {
+      const response = await fetch(`${apiBase}${url}`, {
         headers: {
           "Content-Type": "application/json",
           ...(options.headers || {}),

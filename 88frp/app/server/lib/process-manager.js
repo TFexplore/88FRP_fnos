@@ -73,9 +73,9 @@ class ProcessManager {
       throw new Error(`未找到 frpc 可执行文件，请将其放到 ${binaryStatus.path}。`);
     }
 
-    const runtime = await this.store.getRuntime(instance.id);
+    let runtime = await this.store.getRuntime(instance.id);
     if (runtime.pid && this.checkPid(runtime.pid)) {
-      return runtime;
+      runtime = await this.stop(instance.id);
     }
 
     const logPath = this.store.getLogPath(instance.id);

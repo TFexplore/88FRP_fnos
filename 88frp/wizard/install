@@ -1,0 +1,39 @@
+[
+    {
+        "stepTitle": "基础设置",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "欢迎使用 88FRP！请设置管理服务的运行端口。默认建议使用 8801。"
+            },
+            {
+                "type": "text",
+                "field": "web_port",
+                "label": "管理服务端口",
+                "initValue": "8801",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入端口号"
+                    },
+                    {
+                        "pattern": "^[0-9]+$",
+                        "message": "端口号必须是数字"
+                    }
+                ]
+            },
+            {
+                "type": "text",
+                "field": "remote_url",
+                "label": "默认远程配置接口",
+                "initValue": "https://auth.88frp.com/config?secret={{secret}}",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入远程接口地址"
+                    }
+                ]
+            }
+        ]
+    }
+]
