@@ -4,22 +4,6 @@
         "items": [
             {
                 "type": "text",
-                "field": "web_port",
-                "label": "管理服务端口",
-                "initValue": "8801",
-                "rules": [
-                    {
-                        "required": true,
-                        "message": "请输入端口号"
-                    },
-                    {
-                        "pattern": "^[0-9]+$",
-                        "message": "端口号必须是数字"
-                    }
-                ]
-            },
-            {
-                "type": "text",
                 "field": "remote_url",
                 "label": "默认远程配置接口",
                 "initValue": "https://auth.88frp.com/config?secret={{secret}}",
@@ -32,7 +16,7 @@
             },
             {
                 "type": "tips",
-                "helpText": "修改配置后，应用将自动重启以应用新设置。"
+                "helpText": "应用通过统一网关访问，无需单独配置管理端口。修改配置后，应用将自动重启以应用新设置。"
             }
         ]
     }

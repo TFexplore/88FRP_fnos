@@ -3,13 +3,12 @@
 ### This script is called before the user change environment variables in application setting page.
 
 CONFIG_FILE="${TRIM_PKGETC}/server.env"
-DEFAULT_PORT="${TRIM_SERVICE_PORT:-8801}"
 
 mkdir -p "${TRIM_PKGETC}"
 
 if [ ! -f "${CONFIG_FILE}" ]; then
     cat > "${CONFIG_FILE}" <<EOF
-web_port=${DEFAULT_PORT}
+remote_url="https://auth.88frp.com/config?secret={{secret}}"
 EOF
 fi
 

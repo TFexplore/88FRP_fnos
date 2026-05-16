@@ -4,7 +4,9 @@
             "title": "88FRP",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
-            "protocol": "http",
+            "protocol": "",
+            "gatewaySocket": "88frp.sock",
+            "gatewayPrefix": "/app/88frp",
             "url": "/cgi/ThirdParty/88frp/index.cgi/",
             "allUsers": false
         }

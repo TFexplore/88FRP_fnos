@@ -7,7 +7,8 @@ const API = (() => {
       // 确保返回的是 /cgi/ThirdParty/88frp/api.cgi 这样的完整路径
       return pathname.slice(0, cgiIndex) + "/api.cgi";
     }
-    return "";
+
+    return new URL(".", window.location.href).pathname.replace(/\/$/, "");
   }
 
   const apiBase = resolveApiBase();

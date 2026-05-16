@@ -1,8 +1,11 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CONFIG_FILE="${TRIM_PKGETC}/server.env"
 DEFAULT_PORT="${TRIM_SERVICE_PORT:-8801}"
 SERVICE_HOST="127.0.0.1"
+APP_DEST="${FNOS_APPDEST:-${TRIM_APPDEST:-$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)}}"
+SOCKET_FILE="${APP_DEST}/88frp.sock"
 
 if [ -f "${CONFIG_FILE}" ]; then
     # shellcheck disable=SC1090
@@ -35,7 +38,12 @@ if [ -z "${REL_PATH}" ] || [ "${REL_PATH}" = "/" ]; then
     REL_PATH="/api/health"
 fi
 
-TARGET_URL="http://${SERVICE_HOST}:${SERVICE_PORT}${REL_PATH}"
+if [ -S "${SOCKET_FILE}" ]; then
+    TARGET_URL="http://localhost${REL_PATH}"
+else
+    TARGET_URL="http://${SERVICE_HOST}:${SERVICE_PORT}${REL_PATH}"
+fi
+
 if [ "${QUERY_STRING_PART}" != "${REQUEST_URI}" ]; then
     TARGET_URL="${TARGET_URL}?${QUERY_STRING_PART}"
 fi
@@ -60,6 +68,10 @@ CURL_ARGS=(
     -H "Accept: application/json"
 )
 
+if [ -S "${SOCKET_FILE}" ]; then
+    CURL_ARGS+=(--unix-socket "${SOCKET_FILE}")
+fi
+
 if [ -n "${CONTENT_TYPE}" ]; then
     CURL_ARGS+=(-H "Content-Type: ${CONTENT_TYPE}")
 fi
@@ -72,7 +84,15 @@ if ! curl "${CURL_ARGS[@]}" "${TARGET_URL}"; then
     echo "Status: 502 Bad Gateway"
     echo "Content-Type: application/json; charset=utf-8"
     echo ""
-    echo '{"success":false,"message":"88FRP 内部管理服务不可用。","data":null}'
+    if [ -S "${SOCKET_FILE}" ]; then
+        SOCKET_EXISTS="true"
+    else
+        SOCKET_EXISTS="false"
+    fi
+    printf '{"success":false,"message":"88FRP 内部管理服务不可用。","data":{"socketPath":"%s","socketExists":%s,"targetUrl":"%s"}}\n' \
+        "${SOCKET_FILE}" \
+        "${SOCKET_EXISTS}" \
+        "${TARGET_URL}"
     exit 0
 fi
 

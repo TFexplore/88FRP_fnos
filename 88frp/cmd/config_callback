@@ -3,24 +3,9 @@
 ### This script is called after the user change environment variables in application setting page.
 
 CONFIG_FILE="${TRIM_PKGETC}/server.env"
-DEFAULT_PORT="${TRIM_SERVICE_PORT:-8801}"
-NEXT_PORT="${web_port:-$DEFAULT_PORT}"
-
-case "${NEXT_PORT}" in
-    ''|*[!0-9]*)
-        echo "web_port 必须是 1-65535 之间的数字。" >&2
-        exit 1
-        ;;
-esac
-
-if [ "${NEXT_PORT}" -lt 1 ] || [ "${NEXT_PORT}" -gt 65535 ]; then
-    echo "web_port 必须是 1-65535 之间的数字。" >&2
-    exit 1
-fi
 
 mkdir -p "${TRIM_PKGETC}"
 cat > "${CONFIG_FILE}" <<EOF
-web_port=${NEXT_PORT}
 remote_url="${remote_url}"
 EOF
 

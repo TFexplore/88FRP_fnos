@@ -3,10 +3,9 @@
 ### This script is called after the user installs the application.
 
 # 持久化安装向导中定义的配置
-if [ -n "$web_port" ] || [ -n "$remote_url" ]; then
+if [ -n "$remote_url" ]; then
     mkdir -p "${TRIM_PKGETC}"
     {
-        [ -n "$web_port" ] && echo "web_port=$web_port"
         [ -n "$remote_url" ] && echo "remote_url=\"$remote_url\""
     } > "${TRIM_PKGETC}/server.env"
 fi

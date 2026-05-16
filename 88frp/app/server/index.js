@@ -15,6 +15,11 @@ const dataDir = process.env.FNOS_PKGVAR || process.env.TRIM_PKGVAR || path.join(
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.web_port || process.env.PORT || process.env.TRIM_SERVICE_PORT || 8801);
 const defaultRemoteUrl = process.env.remote_url || "";
+const gatewaySocketName = path.basename(process.env.GATEWAY_SOCKET || process.env.gatewaySocket || "88frp.sock");
+const gatewayPrefix = normalizeGatewayPrefix(process.env.GATEWAY_PREFIX || process.env.gatewayPrefix || "/app/88frp");
+const socketDir = appDir;
+const socketPath = path.join(appDir, gatewaySocketName);
+const listenMode = process.env.LISTEN_MODE || (process.platform === "win32" ? "port" : "socket");
 
 const getArchDir = () => {
   switch (process.arch) {
@@ -69,6 +74,40 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml",
   ".txt": "text/plain; charset=utf-8",
 };
+
+function normalizeGatewayPrefix(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  const prefixed = text.startsWith("/") ? text : `/${text}`;
+  return prefixed.replace(/\/+$/, "");
+}
+
+function buildGatewayLocation(rawUrl) {
+  const requestUrl = new URL(rawUrl, "http://127.0.0.1");
+  return `${gatewayPrefix}/${requestUrl.search}`;
+}
+
+function normalizeGatewayRequestUrl(rawUrl) {
+  if (!gatewayPrefix) {
+    return rawUrl;
+  }
+
+  const requestUrl = new URL(rawUrl, "http://127.0.0.1");
+  if (requestUrl.pathname === gatewayPrefix) {
+    requestUrl.pathname = "/";
+    return `${requestUrl.pathname}${requestUrl.search}`;
+  }
+
+  if (!requestUrl.pathname.startsWith(`${gatewayPrefix}/`)) {
+    return rawUrl;
+  }
+
+  requestUrl.pathname = requestUrl.pathname.slice(gatewayPrefix.length) || "/";
+  return `${requestUrl.pathname}${requestUrl.search}`;
+}
 
 function pickInstancePayload(payload) {
   return {
@@ -132,8 +171,11 @@ router.register("GET", "/api/health", async (_req, res) => {
     data: {
       service: "88frp",
       nodeVersion: process.version,
+      listenMode,
       host,
       port,
+      socketPath,
+      gatewayPrefix,
       dataDir,
       frpc: processManager.getBinaryStatus(),
     },
@@ -342,6 +384,17 @@ router.register("GET", "/api/logs/app", async (_req, res) => {
 
 async function requestListener(req, res) {
   try {
+    const rawPath = req.url.split("?")[0];
+    if (gatewayPrefix && rawPath === gatewayPrefix) {
+      res.writeHead(302, {
+        Location: buildGatewayLocation(req.url),
+        "Cache-Control": "no-store",
+      });
+      res.end();
+      return;
+    }
+
+    req.url = normalizeGatewayRequestUrl(req.url);
     if (req.url.startsWith("/api/")) {
       const handled = await router.handle(req, res, {});
       if (!handled) {
@@ -364,20 +417,53 @@ async function requestListener(req, res) {
 
 async function bootstrap() {
   await store.initialize();
+  await fs.mkdir(socketDir, { recursive: true });
   // 在启动时清理幽灵进程
   await processManager.killGhostProcesses();
   await processManager.hydrateRuntimeState();
   const server = http.createServer(requestListener);
+  const isSocketMode = listenMode === "socket";
 
-  server.listen(port, host, async () => {
-    await logger.info(`88frp manager started on port ${port}`);
-    console.log(`88frp manager listening on http://${host}:${port}`);
-  });
+  if (isSocketMode) {
+    try {
+      await fs.unlink(socketPath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  if (isSocketMode) {
+    server.listen(socketPath, async () => {
+      try {
+        await fs.chmod(socketPath, 0o666);
+      } catch (error) {
+        await logger.warn(`设置 socket 权限失败: ${error.message}`);
+      }
+      await logger.info(`88frp manager started on socket ${socketPath}`);
+      console.log(`88frp manager listening on socket ${socketPath}`);
+    });
+  } else {
+    server.listen(port, host, async () => {
+      await logger.info(`88frp manager started on port ${port}`);
+      console.log(`88frp manager listening on http://${host}:${port}`);
+    });
+  }
 
   const shutdown = async () => {
     await logger.warn("收到退出信号，准备停止全部实例。");
     await processManager.stopAll();
-    server.close(() => {
+    server.close(async () => {
+      if (isSocketMode) {
+        try {
+          await fs.unlink(socketPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") {
+            console.error(error);
+          }
+        }
+      }
       process.exit(0);
     });
   };
