@@ -1,0 +1,1 @@
+Remove-Item -Path 88frp\88frp.fpk -Force; ..\fnpack.exe build
