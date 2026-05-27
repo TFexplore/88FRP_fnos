@@ -24,6 +24,24 @@ const DEFAULT_RUNTIME = {
   updatedAt: "",
 };
 
+function normalizeInstance(instance) {
+  return {
+    ...instance,
+    remark: instance.remark || "",
+    source: instance.source || "manual",
+    remoteUrl: instance.remoteUrl || "",
+    secretKey: instance.secretKey || "",
+    method: instance.method || "POST",
+    secretPlacement: instance.secretPlacement || "body",
+    secretField: instance.secretField || "secret",
+    extraHeadersText: instance.extraHeadersText || DEFAULT_SETTINGS.defaultHeadersText,
+    extraBody: instance.extraBody || "",
+    responseMode: instance.responseMode || "text",
+    responsePath: instance.responsePath || "",
+    autoSyncEnabled: Boolean(instance.autoSyncEnabled),
+  };
+}
+
 class Store {
   constructor(options) {
     this.dataDir = options.dataDir;
@@ -70,7 +88,7 @@ class Store {
   }
 
   async listInstances() {
-    const instances = await this.readJson(this.instancesFile, []);
+    const instances = (await this.readJson(this.instancesFile, [])).map(normalizeInstance);
     const items = await Promise.all(
       instances.map(async (instance) => {
         const runtime = await this.getRuntime(instance.id);
@@ -87,7 +105,7 @@ class Store {
   }
 
   async getInstance(instanceId) {
-    const instances = await this.readJson(this.instancesFile, []);
+    const instances = (await this.readJson(this.instancesFile, [])).map(normalizeInstance);
     const instance = instances.find((item) => item.id === instanceId);
     if (!instance) {
       return null;
@@ -119,6 +137,7 @@ class Store {
       extraBody: payload.extraBody || "",
       responseMode: payload.responseMode || "text",
       responsePath: payload.responsePath || "",
+      autoSyncEnabled: Boolean(payload.autoSyncEnabled),
       createdAt: now,
       updatedAt: now,
     };
@@ -132,19 +151,22 @@ class Store {
   }
 
   async updateInstance(instanceId, payload) {
-    const instances = await this.readJson(this.instancesFile, []);
+    const instances = (await this.readJson(this.instancesFile, [])).map(normalizeInstance);
     const index = instances.findIndex((item) => item.id === instanceId);
     if (index < 0) {
       return null;
     }
 
     const current = instances[index];
-    const updated = {
+    const merged = {
       ...current,
       ...payload,
+    };
+    const updated = normalizeInstance({
+      ...merged,
       name: (payload.name || current.name).trim(),
       updatedAt: new Date().toISOString(),
-    };
+    });
     instances[index] = updated;
     await this.writeJson(this.instancesFile, instances);
     return this.getInstance(instanceId);

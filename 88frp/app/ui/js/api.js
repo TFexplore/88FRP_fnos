@@ -41,6 +41,10 @@ const API = (() => {
       body: JSON.stringify(payload),
     }),
     getInstance: (id) => request(`/api/instances/${id}`),
+    updateInstance: (id, payload) => request(`/api/instances/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
     deleteInstance: (id) => request(`/api/instances/${id}`, {
       method: "DELETE",
     }),
@@ -54,6 +58,9 @@ const API = (() => {
       body: JSON.stringify(payload),
     }),
     startInstance: (id) => request(`/api/instances/${id}/start`, {
+      method: "POST",
+    }),
+    restartInstance: (id) => request(`/api/instances/${id}/restart`, {
       method: "POST",
     }),
     stopInstance: (id) => request(`/api/instances/${id}/stop`, {

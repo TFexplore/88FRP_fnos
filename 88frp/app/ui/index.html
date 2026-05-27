@@ -32,14 +32,19 @@
         <!-- 顶部工具栏 -->
         <header class="toolbar">
           <div class="toolbar-left">
-            <button class="btn btn-primary" id="btnStart">启动</button>
-            <button class="btn btn-secondary" id="btnStop">暂停</button>
+            <button class="btn btn-primary" id="btnStart" style="display: none;">启动</button>
+            <button class="btn btn-primary" id="btnRestart" style="display: none;">重启</button>
+            <button class="btn btn-secondary" id="btnStop" style="display: none;">暂停</button>
             <div id="instStatusInfo" class="inst-status-info">
               <!-- 动态注入 PID 和 运行时间 -->
             </div>
           </div>
           <div class="toolbar-right">
             <input type="text" class="input-secret" id="inputSecret" placeholder="输入密匙 (secret)">
+            <label class="toggle-option" for="inputAutoSync">
+              <input type="checkbox" id="inputAutoSync">
+              <span>开启自动同步</span>
+            </label>
             <a href="https://88frp.com" target="_blank" class="get-secret-link">获取密匙</a>
             <button class="btn btn-primary" id="btnSync">同步配置</button>
           </div>
@@ -89,6 +94,10 @@
         </div>
         <input type="text" id="newInstSecret" class="form-control" placeholder="留空则手动配置">
       </div>
+      <label class="checkbox-row" for="newInstAutoSync">
+        <input type="checkbox" id="newInstAutoSync">
+        <span>创建后开启自动同步</span>
+      </label>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btnCancelCreate">取消</button>
         <button class="btn btn-primary" id="btnConfirmCreate">创建</button>

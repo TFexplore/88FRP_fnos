@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentInstanceId = null;
   let activeView = 'editor';
   let statusTimer = null;
+  let actionInProgress = false;
+  let originalConfigText = '';
+  let originalAutoSyncEnabled = false;
 
   // DOM 元素
   const instanceList = document.getElementById('instanceList');
@@ -13,8 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const configEditor = document.getElementById('configEditor');
   const logContent = document.getElementById('logContent');
   const inputSecret = document.getElementById('inputSecret');
+  const inputAutoSync = document.getElementById('inputAutoSync');
   const instStatusInfo = document.getElementById('instStatusInfo');
   const toast = document.getElementById('toast');
+  const btnStart = document.getElementById('btnStart');
+  const btnRestart = document.getElementById('btnRestart');
+  const btnStop = document.getElementById('btnStop');
+  const btnDelete = document.getElementById('btnDelete');
+  const btnSaveConfig = document.getElementById('btnSaveConfig');
 
   // 初始化
   fetchInstances();
@@ -24,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnShowCreate').onclick = () => {
     document.getElementById('newInstName').value = '';
     document.getElementById('newInstSecret').value = '';
+    document.getElementById('newInstAutoSync').checked = false;
     createModal.style.display = 'flex';
   };
 
@@ -34,10 +44,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnConfirmCreate').onclick = async () => {
     const name = document.getElementById('newInstName').value.trim();
     const secret = document.getElementById('newInstSecret').value.trim();
+    const autoSyncEnabled = document.getElementById('newInstAutoSync').checked;
     if (!name) return showToast('请输入实例名称');
 
     try {
-      const res = await API.createInstance({ name, secretKey: secret });
+      const res = await API.createInstance({ name, secretKey: secret, autoSyncEnabled });
       if (res.success) {
         createModal.style.display = 'none';
         await fetchInstances();
@@ -52,8 +63,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnSaveConfig').onclick = async () => {
     if (!currentInstanceId) return;
     try {
+      const detailRes = await saveInstanceDetail();
+      if (!detailRes.success) {
+        return showToast(detailRes.message || '实例设置保存失败');
+      }
+
       const res = await API.saveConfig(currentInstanceId, configEditor.value);
-      if (res.success) showToast('配置已保存');
+      if (res.success) {
+        syncCurrentInstanceMeta({
+          secretKey: inputSecret.value.trim(),
+          autoSyncEnabled: inputAutoSync.checked,
+        });
+        markCurrentStateAsSaved();
+        showToast(res.message || '配置已保存');
+      } else {
+        showToast(res.message || '配置保存失败');
+      }
     } catch (e) {
       showToast('保存失败: ' + e.message);
     }
@@ -66,30 +91,65 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       showToast('正在拉取配置...', 5000);
-      const res = await API.fetchRemoteConfig(currentInstanceId, { secretKey: secret });
+      const detailRes = await saveInstanceDetail();
+      if (!detailRes.success) {
+        return showToast(detailRes.message || '实例设置保存失败');
+      }
+
+      const res = await API.fetchRemoteConfig(currentInstanceId, {
+        secretKey: secret,
+        autoSyncEnabled: inputAutoSync.checked,
+      });
       if (res.success) {
         configEditor.value = res.data.configText;
-        showToast('同步成功');
+        syncCurrentInstanceMeta({
+          secretKey: secret,
+          autoSyncEnabled: inputAutoSync.checked,
+        });
+        markCurrentStateAsSaved();
+        showToast(res.message || '同步成功');
+      } else {
+        showToast(res.message || '同步失败');
       }
     } catch (e) {
       showToast('同步失败: ' + e.message);
     }
   };
 
-  document.getElementById('btnStart').onclick = () => handleAction('start');
-  document.getElementById('btnStop').onclick = () => handleAction('stop');
-  document.getElementById('btnDelete').onclick = async () => {
+  btnStart.onclick = () => handleAction('start');
+  btnRestart.onclick = () => handleAction('restart');
+  btnStop.onclick = () => handleAction('stop');
+  btnDelete.onclick = async () => {
+    if (!currentInstanceId || actionInProgress) return;
     if (!confirm('确定要删除该实例吗？相关配置和日志将永久移除。')) return;
+
+    const currentInstance = getCurrentInstance();
     try {
+      actionInProgress = true;
+      updateActionButtons();
+
+      if (currentInstance && canStopInstance(currentInstance.runtime)) {
+        showToast('删除前正在暂停实例...', 5000);
+        const stopRes = await API.stopInstance(currentInstanceId);
+        if (!stopRes.success) {
+          return showToast(stopRes.message || '暂停实例失败，已取消删除');
+        }
+      }
+
       const res = await API.deleteInstance(currentInstanceId);
       if (res.success) {
         currentInstanceId = null;
         await fetchInstances();
         renderWorkbench();
         showToast('已删除');
+      } else {
+        showToast(res.message || '删除失败');
       }
     } catch (e) {
       showToast('删除失败: ' + e.message);
+    } finally {
+      actionInProgress = false;
+      updateActionButtons();
     }
   };
 
@@ -102,6 +162,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnRefreshLog').onclick = fetchLogs;
+  configEditor.addEventListener('input', updateDirtyState);
+  inputAutoSync.addEventListener('change', updateDirtyState);
 
   // 函数定义
   async function fetchInstances() {
@@ -110,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.success) {
         instances = res.data;
         renderInstanceList();
+        updateActionButtons();
       }
     } catch (e) {
       console.error('Fetch instances failed', e);
@@ -186,13 +249,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const inst = instances.find(i => i.id === id);
     if (inst) {
       inputSecret.value = inst.secretKey || '';
+      inputAutoSync.checked = Boolean(inst.autoSyncEnabled);
+      updateActionButtons();
       try {
         const configRes = await API.getConfig(id);
         if (configRes.success) {
           configEditor.value = configRes.data.configText;
+          setSavedState(configRes.data.configText, Boolean(inst.autoSyncEnabled));
         }
       } catch (e) {
         configEditor.value = '';
+        setSavedState('', Boolean(inst.autoSyncEnabled));
       }
       if (activeView === 'log') fetchLogs();
     }
@@ -205,7 +272,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       emptyState.style.display = 'flex';
       workbench.style.display = 'none';
+      setSavedState('', false);
     }
+    updateActionButtons();
   }
 
   function renderTabs() {
@@ -228,19 +297,117 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function handleAction(action) {
-    if (!currentInstanceId) return;
+    if (!currentInstanceId || actionInProgress) return;
     try {
-      showToast('正在执行操作...');
-      const res = await (action === 'start' ? API.startInstance(currentInstanceId) : API.stopInstance(currentInstanceId));
+      actionInProgress = true;
+      updateActionButtons();
+
+      const actionMap = {
+        start: {
+          request: () => API.startInstance(currentInstanceId),
+          pendingText: '正在启动实例...',
+          successText: '实例已启动',
+        },
+        restart: {
+          request: () => API.restartInstance(currentInstanceId),
+          pendingText: '正在重启实例...',
+          successText: '实例已重启',
+        },
+        stop: {
+          request: () => API.stopInstance(currentInstanceId),
+          pendingText: '正在暂停实例...',
+          successText: '实例已暂停',
+        },
+      };
+      const currentAction = actionMap[action];
+      if (!currentAction) return;
+
+      showToast(currentAction.pendingText, 5000);
+      const res = await currentAction.request();
       if (res.success) {
-        showToast('操作成功');
+        showToast(res.message || currentAction.successText);
         await fetchInstances();
       } else {
         showToast('失败: ' + res.message);
       }
     } catch (e) {
       showToast('操作异常: ' + e.message);
+    } finally {
+      actionInProgress = false;
+      updateActionButtons();
     }
+  }
+
+  async function saveInstanceDetail() {
+    return API.updateInstance(currentInstanceId, {
+      secretKey: inputSecret.value.trim(),
+      autoSyncEnabled: inputAutoSync.checked,
+    });
+  }
+
+  function syncCurrentInstanceMeta(patch) {
+    instances = instances.map(inst => (
+      inst.id === currentInstanceId
+        ? { ...inst, ...patch }
+        : inst
+    ));
+  }
+
+  function getCurrentInstance() {
+    return instances.find(inst => inst.id === currentInstanceId) || null;
+  }
+
+  function canStopInstance(runtime = {}) {
+    return runtime.status === 'running';
+  }
+
+  function canRestartInstance(runtime = {}) {
+    return runtime.status === 'running';
+  }
+
+  function canStartInstance(runtime = {}) {
+    return !runtime.status || runtime.status === 'stopped' || runtime.status === 'error';
+  }
+
+  function updateActionButtons() {
+    const currentInstance = getCurrentInstance();
+    const hasInstance = Boolean(currentInstanceId && currentInstance);
+    const runtime = (currentInstance && currentInstance.runtime) || {};
+    const showStart = hasInstance && canStartInstance(runtime);
+    const showRestart = hasInstance && canRestartInstance(runtime);
+    const showStop = hasInstance && canStopInstance(runtime);
+
+    btnStart.style.display = showStart ? 'inline-flex' : 'none';
+    btnRestart.style.display = showRestart ? 'inline-flex' : 'none';
+    btnStop.style.display = showStop ? 'inline-flex' : 'none';
+
+    btnStart.disabled = !showStart || actionInProgress;
+    btnRestart.disabled = !showRestart || actionInProgress;
+    btnStop.disabled = !showStop || actionInProgress;
+    btnDelete.disabled = !hasInstance || actionInProgress;
+  }
+
+  function normalizeEditorText(text) {
+    return String(text || '').replace(/\r\n/g, '\n');
+  }
+
+  function setSavedState(configText, autoSyncEnabled) {
+    originalConfigText = normalizeEditorText(configText);
+    originalAutoSyncEnabled = Boolean(autoSyncEnabled);
+    updateDirtyState();
+  }
+
+  function markCurrentStateAsSaved() {
+    setSavedState(configEditor.value, inputAutoSync.checked);
+  }
+
+  function updateDirtyState() {
+    const hasInstance = Boolean(currentInstanceId);
+    const isDirty = hasInstance && (
+      normalizeEditorText(configEditor.value) !== originalConfigText ||
+      Boolean(inputAutoSync.checked) !== originalAutoSyncEnabled
+    );
+    btnSaveConfig.classList.toggle('is-dirty', isDirty);
   }
 
   function startStatusPolling() {

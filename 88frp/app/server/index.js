@@ -20,6 +20,8 @@ const gatewayPrefix = normalizeGatewayPrefix(process.env.GATEWAY_PREFIX || proce
 const socketDir = appDir;
 const socketPath = path.join(appDir, gatewaySocketName);
 const listenMode = process.env.LISTEN_MODE || (process.platform === "win32" ? "port" : "socket");
+const autoSyncIntervalMs = Math.max(60000, Number(process.env.AUTO_SYNC_INTERVAL_MS || 60000));
+const autoStartInstancesOnBoot = String(process.env.INSTANCE_AUTO_START_ON_BOOT || "1") !== "0";
 
 const getArchDir = () => {
   switch (process.arch) {
@@ -110,20 +112,167 @@ function normalizeGatewayRequestUrl(rawUrl) {
 }
 
 function pickInstancePayload(payload) {
-  return {
-    name: payload.name,
-    remark: payload.remark || "",
-    source: payload.source || "manual",
-    remoteUrl: payload.remoteUrl || "",
-    secretKey: payload.secretKey || "",
-    method: payload.method || "POST",
-    secretPlacement: payload.secretPlacement || "body",
-    secretField: payload.secretField || "secret",
-    extraHeadersText: payload.extraHeadersText || "{\n  \"Content-Type\": \"application/json\"\n}",
-    extraBody: payload.extraBody || "",
-    responseMode: payload.responseMode || "text",
-    responsePath: payload.responsePath || "",
+  const partial = Boolean(payload && payload.__partial);
+  const nextValue = {};
+  const addField = (key, value) => {
+    if (!partial || Object.prototype.hasOwnProperty.call(payload, key)) {
+      nextValue[key] = value;
+    }
   };
+
+  addField("name", payload.name);
+  addField("remark", payload.remark || "");
+  addField("source", payload.source || "manual");
+  addField("remoteUrl", payload.remoteUrl || "");
+  addField("secretKey", payload.secretKey || "");
+  addField("method", payload.method || "POST");
+  addField("secretPlacement", payload.secretPlacement || "body");
+  addField("secretField", payload.secretField || "secret");
+  addField("extraHeadersText", payload.extraHeadersText || "{\n  \"Content-Type\": \"application/json\"\n}");
+  addField("extraBody", payload.extraBody || "");
+  addField("responseMode", payload.responseMode || "text");
+  addField("responsePath", payload.responsePath || "");
+  addField("autoSyncEnabled", Boolean(payload.autoSyncEnabled));
+  return nextValue;
+}
+
+function normalizeConfigForCompare(configText) {
+  return String(configText || "").replace(/\r\n/g, "\n").trimEnd();
+}
+
+async function resolveSyncSettings() {
+  const settings = await store.getSettings();
+  if (defaultRemoteUrl && !settings.defaultRemoteUrl) {
+    settings.defaultRemoteUrl = defaultRemoteUrl;
+  }
+  return settings;
+}
+
+async function fetchInstanceRemoteConfig(instance) {
+  const settings = await resolveSyncSettings();
+  let result;
+  try {
+    result = await fetchRemoteConfig(instance, settings);
+  } catch (error) {
+    error.statusCode = error.statusCode || 502;
+    throw error;
+  }
+
+  if (!result.validation.valid) {
+    const error = new Error(result.validation.errors.join(" "));
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const currentConfigText = await store.readConfig(instance.id);
+  return {
+    ...result,
+    changed: normalizeConfigForCompare(currentConfigText) !== normalizeConfigForCompare(result.configText),
+  };
+}
+
+async function saveInstanceConfig(instanceId, configText) {
+  await store.saveConfig(instanceId, configText);
+  await store.saveRuntime(instanceId, {
+    ...(await store.getRuntime(instanceId)),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function applyRemoteConfig(instance, options = {}) {
+  const result = await fetchInstanceRemoteConfig(instance);
+  if (!result.changed) {
+    return {
+      ...result,
+      runtimeAction: "unchanged",
+    };
+  }
+
+  await saveInstanceConfig(instance.id, result.configText);
+
+  if (!options.restartOnChange) {
+    return {
+      ...result,
+      runtimeAction: "saved",
+    };
+  }
+
+  const latestInstance = await ensureInstanceExists(instance.id);
+  const runtime = await store.getRuntime(instance.id);
+  if (runtime.pid && processManager.checkPid(runtime.pid)) {
+    await processManager.restart(latestInstance);
+    return {
+      ...result,
+      runtimeAction: "restarted",
+    };
+  }
+
+  await processManager.start(latestInstance);
+  return {
+    ...result,
+    runtimeAction: "started",
+  };
+}
+
+async function autoStartManagedInstances() {
+  if (!autoStartInstancesOnBoot) {
+    await logger.info("已跳过实例自动启动。");
+    return;
+  }
+
+  const instances = await store.listInstances();
+  for (const instance of instances) {
+    try {
+      const configText = await store.readConfig(instance.id);
+      if (!configText.trim()) {
+        await logger.warn(`实例 ${instance.name} 未配置内容，跳过自动启动。`);
+        continue;
+      }
+
+      const runtime = await store.getRuntime(instance.id);
+      if (runtime.pid && processManager.checkPid(runtime.pid)) {
+        continue;
+      }
+
+      await logger.info(`服务启动后自动启动实例: ${instance.name}`);
+      await processManager.start(instance);
+    } catch (error) {
+      await logger.error(`自动启动实例 ${instance.name} 失败: ${error.message}`);
+    }
+  }
+}
+
+function startAutoSyncScheduler() {
+  let running = false;
+
+  return setInterval(async () => {
+    if (running) {
+      return;
+    }
+
+    running = true;
+    try {
+      const instances = await store.listInstances();
+      const targets = instances.filter((instance) => instance.autoSyncEnabled);
+      for (const instance of targets) {
+        try {
+          if (!String(instance.secretKey || "").trim()) {
+            await logger.warn(`实例 ${instance.name} 已开启自动同步，但未配置密匙，已跳过。`);
+            continue;
+          }
+
+          const result = await applyRemoteConfig(instance, { restartOnChange: true });
+          if (result.changed) {
+            await logger.info(`实例 ${instance.name} 自动同步检测到配置变更，已${result.runtimeAction === "restarted" ? "重启" : "启动"}实例。`);
+          }
+        } catch (error) {
+          await logger.error(`实例 ${instance.name} 自动同步失败: ${error.message}`);
+        }
+      }
+    } finally {
+      running = false;
+    }
+  }, autoSyncIntervalMs);
 }
 
 async function ensureInstanceExists(instanceId) {
@@ -237,7 +386,15 @@ router.register("GET", "/api/instances/:id", async (_req, res, context) => {
 
 router.register("PUT", "/api/instances/:id", async (req, res, context) => {
   const body = await readJsonBody(req);
-  const instance = await store.updateInstance(context.params.id, pickInstancePayload(body));
+  if (Object.prototype.hasOwnProperty.call(body, "name") && !String(body.name || "").trim()) {
+    sendJson(res, 400, { success: false, message: "实例名称不能为空。", data: null });
+    return;
+  }
+
+  const instance = await store.updateInstance(context.params.id, pickInstancePayload({
+    ...body,
+    __partial: true,
+  }));
   if (!instance) {
     sendJson(res, 404, { success: false, message: "实例不存在。", data: null });
     return;
@@ -248,17 +405,22 @@ router.register("PUT", "/api/instances/:id", async (req, res, context) => {
 
 router.register("DELETE", "/api/instances/:id", async (_req, res, context) => {
   const instance = await store.getInstance(context.params.id);
-  if (instance) {
-    await logger.info(`准备删除实例: ${instance.name} (${instance.id})`);
-    // 1. 先停止进程
-    await processManager.stop(instance.id);
-    // 2. 从持久化存储中删除
-    const success = await store.deleteInstance(context.params.id);
-    await logger.info(`实例 ${instance.name} 已从存储中移除。`);
-    sendJson(res, 200, { success, message: success ? "实例已删除并停止。" : "删除失败。", data: null });
-  } else {
+  if (!instance) {
     sendJson(res, 404, { success: false, message: "实例不存在。", data: null });
+    return;
   }
+
+  const runtime = await store.getRuntime(instance.id);
+  await logger.info(`准备删除实例: ${instance.name} (${instance.id})`);
+
+  if (runtime.pid && processManager.checkPid(runtime.pid)) {
+    await logger.info(`删除前先暂停实例: ${instance.name}`);
+    await processManager.stop(instance.id);
+  }
+
+  const success = await store.deleteInstance(context.params.id);
+  await logger.info(`实例 ${instance.name} 已从存储中移除。`);
+  sendJson(res, 200, { success, message: success ? "实例已先暂停并删除。" : "删除失败。", data: null });
 });
 
 router.register("GET", "/api/instances/:id/config", async (_req, res, context) => {
@@ -288,11 +450,7 @@ router.register("PUT", "/api/instances/:id/config", async (req, res, context) =>
     return;
   }
 
-  await store.saveConfig(context.params.id, configText);
-  await store.saveRuntime(context.params.id, {
-    ...(await store.getRuntime(context.params.id)),
-    updatedAt: new Date().toISOString(),
-  });
+  await saveInstanceConfig(context.params.id, configText);
   sendJson(res, 200, {
     success: true,
     message: validation.warnings[0] || "配置已保存。",
@@ -303,33 +461,22 @@ router.register("PUT", "/api/instances/:id/config", async (req, res, context) =>
 router.register("POST", "/api/instances/:id/fetch-config", async (req, res, context) => {
   const body = await readJsonBody(req);
   const instance = await ensureInstanceExists(context.params.id);
-  const settings = await store.getSettings();
-  if (defaultRemoteUrl && !settings.defaultRemoteUrl) {
-    settings.defaultRemoteUrl = defaultRemoteUrl;
-  }
   const nextPayload = {
     ...instance,
     ...body,
   };
-  const result = await fetchRemoteConfig(nextPayload, settings);
-  if (!result.validation.valid) {
-    sendJson(res, 400, {
-      success: false,
-      message: result.validation.errors.join(" "),
-      data: result.validation,
-    });
-    return;
-  }
-
-  await store.saveConfig(instance.id, result.configText);
   const updated = await store.updateInstance(instance.id, pickInstancePayload(nextPayload));
+  const result = await applyRemoteConfig(updated, { restartOnChange: false });
   sendJson(res, 200, {
     success: true,
-    message: result.validation.warnings[0] || "远程配置已获取并保存。",
+    message: result.changed
+      ? (result.validation.warnings[0] || "远程配置已获取并保存。")
+      : "远程配置无变化。",
     data: {
       instance: updated,
       configText: result.configText,
       validation: result.validation,
+      changed: result.changed,
     },
   });
 });
@@ -421,6 +568,8 @@ async function bootstrap() {
   // 在启动时清理幽灵进程
   await processManager.killGhostProcesses();
   await processManager.hydrateRuntimeState();
+  await autoStartManagedInstances();
+  const autoSyncTimer = startAutoSyncScheduler();
   const server = http.createServer(requestListener);
   const isSocketMode = listenMode === "socket";
 
@@ -453,6 +602,7 @@ async function bootstrap() {
 
   const shutdown = async () => {
     await logger.warn("收到退出信号，准备停止全部实例。");
+    clearInterval(autoSyncTimer);
     await processManager.stopAll();
     server.close(async () => {
       if (isSocketMode) {
